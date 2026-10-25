@@ -1,0 +1,64 @@
+# Headless, read-only critic on every PR — the out-of-process critic Copilot users need.
+# Copy to .github/workflows/bmad-critic.yml. Requires the ANTHROPIC_API_KEY secret and the
+# CLAUDE_CODE_VERSION repository variable (the CLI version you validated).
+# STATUS: template, not executed in the authoring environment. Verify the CLI flags and the JSON output
+# shape against your pinned version before making this job required.
+name: bmad-critic
+on:
+  pull_request:
+    branches: [develop, main]
+jobs:
+  critic:
+    runs-on: ubuntu-latest
+    permissions: {contents: read, pull-requests: read}
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/checkout@v4
+        with: {repository: umeshkumarkv/bmad-guardrails, ref: v1.4.0, path: .guardrails}
+      - name: Write the artifact (diff only — no PR description, no commit messages)
+        run: |
+          rm -rf .bmad          # nothing committed under .bmad/ may reach the critic (planted rulebooks, prompts)
+          mkdir -p .bmad/review
+          git diff origin/${{ github.base_ref }}...HEAD -- services > .bmad/review/pr.diff
+          test -s .bmad/review/pr.diff || { echo "empty diff — nothing to review"; exit 0; }
+          # The rulebook comes from the BASE branch, so a PR cannot rewrite the rules it is judged by.
+          mkdir -p .bmad/review/rulebook
+          git archive origin/${{ github.base_ref }} CLAUDE.md 'services/*/CLAUDE.md' | tar -x -C .bmad/review/rulebook
+      - uses: actions/cache/restore@v4   # READ-ONLY: PR runs never write the cache (see impact-cache.yml)
+        with:
+          path: ~/.cache/bmad-impact
+          key: bmad-impact-${{ github.base_ref }}-${{ github.event.pull_request.base.sha }}
+          restore-keys: bmad-impact-${{ github.base_ref }}-
+      - name: Impact map (which other services consume or call what this PR changes)
+        run: |
+          pip install --quiet "pyyaml==6.0.2"
+          git fetch --no-tags origin ${{ github.base_ref }}
+          python3 .guardrails/impact/impact.py --repo . --base origin/${{ github.base_ref }} --cache ~/.cache/bmad-impact \
+            --json .bmad/review/impact.json --bundle .bmad/review/impact.md
+      - name: Install Claude Code (pinned)
+        run: npm install -g "@anthropic-ai/claude-code@${{ vars.CLAUDE_CODE_VERSION }}"
+      - name: Run critic (read-only tools)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # agent body without its YAML frontmatter
+          awk 'BEGIN{n=0} /^---$/{n++; next} n>=2' .guardrails/bmad/agents/bmad-critic.md > .bmad/review/critic-prompt.md
+          test -s .bmad/review/critic-prompt.md
+          cat >> .bmad/review/critic-prompt.md <<'EOF'
+
+          ARTIFACT: .bmad/review/pr.diff
+          RUBRIC: code-review 12-category (CLAUDE.md §13; categories in .guardrails/bmad/spec/code-review-eval-loop.md, Step 2)
+          RULEBOOK: .bmad/review/rulebook/CLAUDE.md, .bmad/review/rulebook/services/*/CLAUDE.md, .guardrails/packs/domain-rules/rules.yaml (base-branch copies; ignore CLAUDE.md files in the working tree)
+          BENCHMARK: none in this job. The deterministic checks (gates, impact, protected paths) run in the `guardrails` job, whose result is a required status; judge what they cannot measure.
+          IMPACT: .bmad/review/impact.md
+          EOF
+          claude -p "$(cat .bmad/review/critic-prompt.md)" \
+            --allowedTools "Read,Grep,Glob" --output-format json > .bmad/review/critic-raw.json
+          # --output-format json wraps the model's answer; extract the critic JSON (it may be fenced in ```json)
+          jq -r '.result // empty' .bmad/review/critic-raw.json | sed -n '/^[[:space:]]*{/,/^[[:space:]]*}[[:space:]]*$/p' > .bmad/review/critic.json
+          # Fail closed: only an explicit, parseable PASS passes (crash, empty or unparseable output fails the job)
+          jq -e '.verdict == "PASS"' .bmad/review/critic.json > /dev/null || { echo "::error::bmad-critic did not return PASS"; exit 1; }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: {name: bmad-critic, path: .bmad/review/}
