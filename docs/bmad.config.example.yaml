@@ -1,0 +1,76 @@
+# EXAMPLE ONLY — a filled BMAD profile for a fictional trade-allocation application.
+# Copy the values that fit into .github/bmad/bmad.config.yaml. All names, ports and env var names are synthetic.
+
+project:
+  name: Example Trade Allocation
+  key: TRD
+  subdomains: [capital-markets]
+
+flow:
+  auto_loop: false
+  review_changes: true
+  review_granularity: step
+  critic: true
+  max_attempts: 3
+
+work:
+  dir: docs/bmad
+
+tracker:
+  type: none
+  site: null
+  project_key: null
+
+rulebook:
+  root: AGENTS.md
+  module: "{module_path}/AGENTS.md"
+  out_of_scope_heading: "Out of Scope"
+  protected_headings: [State Machine, Validation Rules, Domain Rules]
+
+modules:
+  - name: order-api
+    path: services/order-api
+    stack: java-spring
+    port: 8101
+    db_schema: order_api
+    e2e_dir: null
+  - name: allocation-engine
+    path: services/allocation-engine
+    stack: java-spring
+    port: 8102
+    db_schema: allocation
+    e2e_dir: null
+  - name: ops-ui
+    path: web/ops-ui
+    stack: react-typescript
+    port: 5180
+    db_schema: null
+    e2e_dir: web/ops-ui/e2e
+
+git:
+  base_branch: develop
+  protected_branches: [develop, main]
+  feature_branch_pattern: "feature/{id}-{slug}"
+  commit_trailer: "AI-Assisted: GitHub Copilot (BMAD {role})"
+
+api:
+  base_path: /api/v1
+  spec_file: "{module_path}/openapi.yaml"
+  success_envelope: '{ "data": {}, "meta": { "timestamp": "...", "requestId": "..." } }'
+  error_envelope: '{ "error": { "code": "...", "message": "...", "details": [] }, "meta": { ... } }'
+  money_json_type: string
+  roles: [TRADER, MIDDLE_OFFICE, OPERATIONS, COMPLIANCE, ADMIN]
+
+runtime:
+  api_base_url: http://localhost:8100
+  ui_base_url: http://localhost:5180
+  login_endpoint: /api/v1/auth/login
+  token_json_path: .data.token
+  login_env: [TRD_QA_USER, TRD_QA_PASSWORD]
+  role_logins:
+    - role: OPERATIONS
+      login_env: [TRD_QA_OPS_USER, TRD_QA_OPS_PASSWORD]
+  db_query_cmd: 'docker exec trd-db psql -U qa_readonly -d trd -P pager=off -c "{sql}"'
+
+quality:
+  coverage_min_line_pct: 80

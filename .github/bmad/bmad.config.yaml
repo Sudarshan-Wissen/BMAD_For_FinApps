@@ -1,0 +1,83 @@
+# BMAD project profile — the ONLY project-specific file. Every BMAD agent reads it first.
+# Fill every TODO before the first run.
+
+project:
+  name: TODO-project-name
+  key: TODO                          # short uppercase prefix for work-item ids, e.g. PAY → PAY-1, PAY-2
+  subdomains: [capital-markets]      # sections of domain/bfsi-domain-pack.md to use:
+                                     # capital-markets | retail-banking | payments | lending | cards | wealth-management | insurance
+
+# ── Flow control ────────────────────────────────────────────────────────────
+flow:
+  auto_loop: false          # false (default): after each check/attempt and at the end of each stage, ask:
+                            #   "1 next agent · 2 continue loop · 3 stop".  true: fix and re-check automatically
+                            #   up to max_attempts, then offer the hand-off to the next agent without asking.
+  review_changes: true      # true (default): after every change the agent pauses so you can review it in the
+                            #   editor (Keep / Undo) and reply keep | revise: <notes> | discard. Applies in both modes.
+  review_granularity: step  # step: pause after each logical step (one document, one code layer)
+                            # file: pause after every single file
+  critic: true              # run the independent read-only critic after the checks pass (costs one extra call)
+  max_attempts: 3           # fix-and-recheck attempts per stage
+
+# ── Where work items live ───────────────────────────────────────────────────
+work:
+  dir: docs/bmad            # PRDs, stories, designs, QA reports are Markdown files here (committed with the code)
+
+tracker:
+  type: none                # none (default): work items are only the files in work.dir
+                            # jira: ALSO mirror them to JIRA via the Atlassian MCP server (each write asks first)
+  site: null                # jira only, e.g. your-site.atlassian.net
+  project_key: null         # jira only; when set, JIRA keys are used as ids instead of project.key
+
+# ── Copy-paste / upload exports (no MCP): /to-jira-csv and /to-confluence ────
+export:                     # files are written to {work.dir}/export/
+  jira:
+    epic_type: Epic         # issue type names in your JIRA project
+    story_type: Story
+    acceptance_criteria_in_description: false   # true if your JIRA has no Acceptance Criteria field
+
+# ── Rulebook ────────────────────────────────────────────────────────────────
+rulebook:
+  root: AGENTS.md                    # template: .github/bmad/templates/AGENTS.md
+  module: "{module_path}/AGENTS.md"  # written by the onboard agent
+  out_of_scope_heading: "Out of Scope"
+  protected_headings: [State Machine, Validation Rules, Domain Rules]   # agents never edit these
+
+# ── Modules ─────────────────────────────────────────────────────────────────
+modules:
+  - name: TODO-module-name
+    path: TODO/path              # repo-relative
+    stack: java-spring           # file name in .github/bmad/stacks/ (java-spring | react-typescript | your own)
+    port: null
+    db_schema: null
+    e2e_dir: null                # UI modules: Playwright spec folder (default {path}/e2e)
+
+# ── Git ─────────────────────────────────────────────────────────────────────
+git:
+  base_branch: develop
+  protected_branches: [develop, main]
+  feature_branch_pattern: "feature/{id}-{slug}"
+  commit_trailer: "AI-Assisted: GitHub Copilot (BMAD {role})"
+
+# ── API conventions ─────────────────────────────────────────────────────────
+api:
+  base_path: /api/v1
+  spec_file: "{module_path}/openapi.yaml"   # or null
+  success_envelope: '{ "data": {}, "meta": { "timestamp": "...", "requestId": "..." } }'
+  error_envelope: '{ "error": { "code": "...", "message": "...", "details": [] }, "meta": { ... } }'
+  money_json_type: string                   # string (recommended) | integer-minor-units
+  roles: []                                 # e.g. [TRADER, OPERATIONS, COMPLIANCE, ADMIN]
+
+# ── Running system for the QA agent (local or test — never production) ──────
+runtime:
+  api_base_url: http://localhost:8080
+  ui_base_url: null
+  login_endpoint: null                      # e.g. /api/v1/auth/login ; null = no token login
+  token_json_path: .data.token
+  login_env: [BMAD_DEMO_USER, BMAD_DEMO_PASSWORD]   # env var NAMES only
+  role_logins: []                           # e.g. [{role: OPERATIONS, login_env: [BMAD_OPS_USER, BMAD_OPS_PASSWORD]}]
+  db_query_cmd: null                        # read-only, e.g. 'docker exec db psql -U app -d app -c "{sql}"'
+
+# ── Quality ─────────────────────────────────────────────────────────────────
+quality:
+  coverage_min_line_pct: 80
